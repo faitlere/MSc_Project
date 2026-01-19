@@ -1,0 +1,247 @@
+---
+title: "Gender pay gap EDA"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-12-30"
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r}
+library(tidyverse)  
+library(skimr)      
+library(corrplot) 
+library(DataExplorer)
+
+```
+
+```{r}
+GPG_df <- read.csv("~/Documents/Masters/Dissertation/Data/UK Gender Pay Gap 2017 - 2025.csv")
+```
+
+```{r}
+# Basic structure
+dim(GPG_df)    
+str(GPG_df)   
+head(GPG_df, 10)  
+
+colnames(GPG_df)
+```
+
+```{r}
+# Sum of missing values
+missing_summary <- GPG_df %>%
+  summarise(across(
+    everything(),
+    ~sum(is.na(.) | . == ""),
+    .names = "{.col}_missing_count"
+  ))
+
+print(missing_summary)
+
+```
+
+```{r}
+
+# Data cleaning 
+
+# Relevant colummns
+
+GPG_clean <- GPG_df %>%
+  mutate(DiffMeanHourlyPercent = as.numeric(DiffMeanHourlyPercent)) %>%
+  mutate(DiffMedianHourlyPercent = as.numeric(DiffMedianHourlyPercent)) %>%
+  mutate(DiffMeanBonusPercent = as.numeric(DiffMeanBonusPercent)) %>%
+  mutate(DiffMedianBonusPercent = as.numeric(DiffMedianBonusPercent)) %>%
+  mutate(MaleBonusPercent = as.numeric(MaleBonusPercent)) %>%
+  mutate(FemaleBonusPercent = as.numeric(FemaleBonusPercent)) %>%
+  mutate(MaleLowerQuartile = as.numeric(MaleLowerQuartile)) %>%
+  mutate(FemaleLowerQuartile = as.numeric(FemaleLowerQuartile)) %>%
+  mutate(MaleLowerMiddleQuartile = as.numeric(MaleLowerMiddleQuartile)) %>%
+  mutate(FemaleLowerMiddleQuartile = as.numeric(FemaleLowerMiddleQuartile)) %>%
+  mutate(MaleUpperMiddleQuartile = as.numeric(MaleUpperMiddleQuartile)) %>%
+  mutate(FemaleUpperMiddleQuartile = as.numeric(FemaleUpperMiddleQuartile)) %>%
+  mutate(MaleTopQuartile = as.numeric(MaleTopQuartile)) %>%
+  mutate(FemaleTopQuartile = as.numeric(FemaleTopQuartile)) %>%
+  mutate(Year = as.numeric(Year)) %>%
+  select(EmployerName, EmployerId, SicCodes, DiffMeanHourlyPercent, 
+         DiffMedianHourlyPercent, DiffMeanBonusPercent, DiffMedianBonusPercent, 
+         MaleBonusPercent, FemaleBonusPercent, MaleLowerQuartile, FemaleLowerQuartile, 
+         MaleLowerMiddleQuartile, FemaleLowerMiddleQuartile, MaleUpperMiddleQuartile, 
+         FemaleUpperMiddleQuartile, MaleTopQuartile, FemaleTopQuartile, 
+         EmployerSize, CurrentName, Year)
+
+
+
+summary(GPG_clean)
+dim(GPG_clean)
+```
+
+#Data Analysis
+
+```{r}
+gap_summary <- GPG_clean %>%
+  summarise(
+    gap_positive = sum(DiffMeanHourlyPercent > 0, na.rm = TRUE),
+    gap_negative = sum(DiffMeanHourlyPercent < 0, na.rm = TRUE),
+    gap_zero = sum(DiffMeanHourlyPercent == 0, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = everything(), names_to = "gap_type", values_to = "count") %>%
+  mutate(
+    prop = count / sum(count),
+    gap_type = factor(gap_type, 
+                      levels = c("gap_positive", "gap_zero", "gap_negative"),
+                      labels = c("Men Earn More", "No Gap", "Women Earn More"))
+  )
+
+ggplot(gap_summary, aes(x = gap_type, y = prop, fill = gap_type)) +
+  geom_col(alpha = 0.8) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)), vjust = -0.3) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("Men Earn More" = "#d81b60", 
+                               "No Gap" = "#888888", 
+                               "Women Earn More" = "#1e88e5")) +
+  labs(title = "Distribution of Gender Pay Gap Directions",
+       y = "Proportion of Firms",
+       x = "Gap Type") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+```
+
+
+```{r}
+p2_overtime <- GPG_clean %>%
+  drop_na(Year, DiffMeanHourlyPercent) %>%
+  group_by(Year) %>%
+  summarise(
+    mean_gap = mean(DiffMeanHourlyPercent, na.rm = TRUE),
+    sd_gap = sd(DiffMeanHourlyPercent, na.rm = TRUE),
+    n = n(),
+    se = sd_gap / sqrt(n),
+    ci_lower = mean_gap - 1.96 * se,
+    ci_upper = mean_gap + 1.96 * se,
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = factor(Year), y = mean_gap, fill = factor(Year))) +
+  geom_col(alpha = 0.7) +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.2) +
+  geom_text(aes(label = round(mean_gap, 2)), vjust = -0.5, size = 3.5) +
+  labs(
+    title = "Gender Pay Gap Over Time (2017–2023)",
+    x = "Year",
+    y = "Mean Gender Pay Gap (%)"
+  ) +
+  scale_fill_viridis_d(option = "magma") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+print(p2_overtime)
+
+
+```
+
+```{r}
+p2_overtime <- GPG_clean %>%
+  drop_na(Year, DiffMeanHourlyPercent) %>%
+  group_by(Year) %>%
+  summarise(
+    mean_gap = mean(DiffMeanHourlyPercent, na.rm = TRUE),
+    sd_gap = sd(DiffMeanHourlyPercent, na.rm = TRUE),
+    n = n(),
+    se = sd_gap / sqrt(n),
+    ci_lower = mean_gap - 1.96 * se,
+    ci_upper = mean_gap + 1.96 * se,
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = factor(Year), y = mean_gap, fill = factor(Year))) +
+  geom_col(alpha = 0.7, width = 0.6) +
+  geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.3, linewidth = 0.8) +
+  geom_text(aes(label = paste0(round(mean_gap, 2), "%"), y = ci_upper), vjust = -0.5, size = 4, fontface = "bold") +
+  labs(
+    title = "Gender Pay Gap Over Time (2017–2025)",
+    x = "Year",
+    y = "Mean Gender Pay Gap (%)"
+  ) +
+  scale_y_continuous(limits = c(0, 17.5),
+                     labels = scales::percent_format(scale = 1)) +
+  scale_fill_viridis_d(option = "magma") +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 11),
+    axis.title = element_text(size = 12, face = "bold"),
+    title = element_text(size = 13, face = "bold"),
+    panel.grid.major.y = element_line(colour = "lightgrey", linewidth = 0.3),
+    plot.margin = margin(t = 10, r = 10, b = 20, l = 10)
+  )
+
+print(p2_overtime)
+
+```
+
+```{r}
+
+p3_by_size <- GPG_clean %>%
+  drop_na(EmployerSize, DiffMeanHourlyPercent) %>%
+  filter(EmployerSize != "Not Provided") %>%  # Add this line
+  mutate(EmployerSize = factor(EmployerSize, 
+                               levels = c("Less than 250", 
+                                         "250 to 499", 
+                                         "500 to 999", 
+                                         "1000 to 4999", 
+                                         "5000 to 19,999", 
+                                         "20,000 or more"))) %>%
+  ggplot(aes(x = EmployerSize, y = DiffMeanHourlyPercent, fill = EmployerSize)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  coord_flip() +
+  scale_y_continuous(limits = c(-50, 50)) +
+  labs(
+    title = "Gender Pay Gap by Company Size",
+    x = "Company Size (Employee Count)",
+    y = "Mean Gender Pay Gap (%)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text = element_text(size = 11),
+    panel.grid.major.x = element_line(colour = "lightgrey", linewidth = 0.3)
+  )
+
+print(p3_by_size)
+
+
+```
+
+```{r}
+p4_quartile_scatter <- GPG_clean %>%
+  drop_na(DiffMedianHourlyPercent, FemaleTopQuartile) %>%
+  filter(DiffMedianHourlyPercent > -100 & DiffMedianHourlyPercent < 50) %>%  # Remove extreme outliers
+  ggplot(aes(x = DiffMedianHourlyPercent, y = FemaleTopQuartile)) +
+  geom_point(alpha = 0.4, colour = "#d81b60", size = 2.5) +
+  geom_smooth(method = "lm", se = TRUE, fill = "#d81b60", alpha = 0.2, colour = "darkred", linewidth = 1.2) +
+  labs(
+    title = "Relationship: Gender Pay Gap vs Women in Top Quartile",
+    x = "Median Gender Pay Gap (%)",
+    y = "Women in Top Quartile (%)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12, face = "bold"),
+    title = element_text(size = 13, face = "bold"),
+    panel.grid.major = element_line(colour = "lightgrey", linewidth = 0.3)
+  )
+
+print(p4_quartile_scatter)
+
+# Stats
+mod_quartile <- lm(DiffMedianHourlyPercent ~ FemaleTopQuartile, 
+                   data = GPG_clean %>% filter(DiffMedianHourlyPercent > -100 & DiffMedianHourlyPercent < 50))
+summary(mod_quartile)
+
+
+```
+

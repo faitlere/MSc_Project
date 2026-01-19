@@ -1,0 +1,444 @@
+---
+title: "Exploratory Data Analysis UKHLS"
+output:
+  word_document: default
+  pdf_document: default
+date: "2025-10-18"
+---
+
+
+```{r}
+library(tidyverse)  # dplyr, ggplot2, tidyr
+library(skimr)      # quick data summary
+library(corrplot)   # correlation matrices
+library(DataExplorer)
+
+```
+
+
+```{r}
+ukhls_df <- read.csv("~/Documents/Masters/Dissertation/Data/Combined Data/BPHS_UKHLS_clean_renamed.csv")
+```
+
+
+```{r}
+dim(ukhls_df)        # rows, columns
+str(ukhls_df)        # column types
+head(ukhls_df, 10)   # first 10 rows
+
+view(ukhls_df)
+```
+
+
+```{r}
+
+# missing values 
+missing_summary <- ukhls_df %>%
+  summarise(across(
+    everything(),
+    ~sum(is.na(.) | . == ""),
+    .names = "{.col}_missing_count"
+  ))
+
+print(missing_summary)
+
+
+
+```
+
+
+```{r}
+# Fix columns
+ukhls_df <- ukhls_df %>%
+  mutate(age = as.numeric(age))
+
+ukhls_df <- ukhls_df %>%
+  mutate(gross_pay = as.numeric(gross_pay))
+
+ukhls_df <- ukhls_df %>%
+  mutate(n_children = as.numeric(n_children))
+
+ukhls_df <- ukhls_df %>%
+  mutate(hours_worked = as.numeric(hours_worked))
+
+ukhls_df <- ukhls_df %>%
+  mutate(net_pay = as.numeric(net_pay))
+
+
+skim(ukhls_df)  # summary stats for all columns
+
+```
+
+
+```{r}
+ukhls_clean <- ukhls_df %>%
+  filter(age >= 22 & age <= 70 & !is.na(age)) %>%
+  
+  filter(employment_status %in% c("Paid employment(ft/pt)", "on maternity leave", "On shared parental leave")) %>%
+  
+  drop_na(gender, gross_pay) %>%
+  filter(gender != "", 
+         gross_pay != "", 
+         !is.na(gross_pay), 
+         gross_pay > 0,
+        # company_size != ""
+         ) %>%
+  
+  select(id, wave, year, source_file, gender, age, n_children, has_children_under16, employment_status, hours_worked, managerial_role, company_size,current_job_condensed, gross_pay, net_pay, highest_qualification)
+
+
+summary(ukhls_clean)
+table(ukhls_clean$gender, useNA = "no")
+summary(ukhls_clean$age)      
+summary(ukhls_clean$gross_pay) 
+
+
+summary(ukhls_clean$gross_pay, useNA = "no")
+
+
+str(ukhls_clean)       
+```
+
+
+```{r}
+dim(ukhls_clean)
+```
+
+
+
+```{r}
+# === 4. KEY VARIABLE DISTRIBUTIONS ===
+# Numeric variables
+ukhls_clean %>%
+  ggplot(aes(x = gross_pay)) +
+  geom_histogram(binwidth = 500, fill = "steelblue") +
+  labs(title = "Distribution of Gross Pay", x = "Gross Pay (£)") +
+  theme_minimal()
+
+# Categorical variables
+ukhls_clean %>%
+  count(gender, employment_status) %>%
+  ggplot(aes(x = employment_status, y = n, fill = gender)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(title = "Employment Status by gender")
+```
+
+
+
+
+```{r}
+ukhls_df %>%
+  count(gender, managerial_role) %>%
+  group_by(gender) %>%
+  mutate(pct = n / sum(n) * 100)
+```
+
+
+
+```{r}
+ukhls_clean %>%
+  count(gender)
+
+
+ukhls_clean %>%
+  count(gender, has_children_under16) %>%
+  group_by(gender) %>%
+  mutate(pct = n / sum(n) * 100)
+
+ukhls_clean %>%
+  count(gender, managerial_role) %>%
+  group_by(gender) %>%
+  mutate(pct = n / sum(n) * 100)
+
+# Women's age statistics - median, mean, mode
+women_ages <- ukhls_clean %>%
+  filter(gender == "female") %>%
+  pull(age) 
+
+# CT on womens ages
+cat(" Women'S Ages \n")
+cat("Median age:", median(women_ages, na.rm = TRUE), "\n")
+cat("Mean age:", round(mean(women_ages, na.rm = TRUE), 2), "\n")
+
+# Mode (most common age)
+mode_age <- as.numeric(names(sort(table(women_ages), decreasing = TRUE))[1])
+cat("Mode age (most common):", mode_age, "\n")
+
+# Full summary
+summary(women_ages)
+
+# Age distribution
+table(women_ages) %>%
+  sort(decreasing = TRUE) %>%
+  head(10)
+
+men_ages <- ukhls_clean %>%
+  filter(gender == "male") %>%
+  pull(age)  # Extract just the age column as vector
+
+cat(" Mens ages \n")
+cat("Median age:", median(men_ages, na.rm = TRUE), "\n")
+cat("Mean age:", round(mean(men_ages, na.rm = TRUE), 2), "\n")
+
+
+mode_age <- as.numeric(names(sort(table(men_ages), decreasing = TRUE))[1])
+cat("Mode age (most common):", mode_age, "\n")
+
+# Full summary
+summary(men_ages)
+
+# Age distribution 
+table(men_ages) %>%
+  sort(decreasing = TRUE) %>%
+  head(10)
+```
+- more women than men in this sample
+
+
+
+## Data Analysis
+
+
+```{r}
+
+ukhls_clean %>%
+  filter(employment_status == "Paid employment(ft/pt)") %>%
+  group_by(gender) %>%
+  summarise(
+    mean_gross = mean(gross_pay, na.rm = TRUE),
+    mean_net   = mean(net_pay, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = starts_with("mean_"),
+               names_to = "pay_type",
+               values_to = "pay") %>%
+  ggplot(aes(x = gender, y = pay, fill = pay_type)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(
+    values = c(
+      mean_gross = "#0288d1", 
+      mean_net   = "#d81b60"  
+    ),
+    labels = c("Gross pay", "Net pay"),
+    name   = "Pay type"
+  ) +
+  labs(
+    title = "UKHLS Gender Pay Gap in the UK (2009–2023)",
+    y = "Mean Annual Pay (£)",
+    x = "Gender"
+  ) +
+  theme_minimal()
+
+#0288d1", "female" = "#d81b60"
+
+```
+
+# Line plot 
+```{r}
+
+ukhls_clean %>%
+  filter(employment_status == "Paid employment(ft/pt)") %>%
+  mutate(age_group = cut(age, breaks = c(20, 30, 40, 50, 60, 70))) %>%
+  group_by(age_group, gender) %>%
+  summarise(median_pay = median(gross_pay, na.rm = TRUE),
+            sd_pay = sd(gross_pay, na.rm = TRUE),
+            n = n(),
+            se = sd_pay / sqrt(n),
+            ci_lower = median_pay - 1.96 * se,
+            ci_upper = median_pay + 1.96 * se) %>%
+  ggplot(aes(x = age_group, y = median_pay, colour = gender, fill = gender)) +
+  geom_line(aes(group = gender)) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper, fill = gender), 
+              alpha = 0.2, colour = NA) +
+  scale_colour_manual(values = c(female = "#d81b60", male = "#0288d1")) +
+  scale_fill_manual(values = c(female = "#d81b60", male = "#0288d1")) +
+  labs(title = "How does Career Earnings Differ by Gender and Age",
+       y = "Median Gross Pay (£)", x = "Age Group") +
+  theme_minimal()
+
+```
+
+
+
+# Side-by-side box plots
+
+```{r}
+
+ukhls_clean %>%
+  filter(gender == "female", employment_status == "Paid employment(ft/pt)") %>%
+  ggplot(aes(x = has_children_under16, y = gross_pay, fill = has_children_under16)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("No" = "#0288d1", "Yes" = "#d81b60")) +
+  labs(title = "Earnings of Mothers vs Non-Mothers",
+       y = "Gross Pay (£)", x = "Has Children Under 16",
+       subtitle = "Female employees only") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+```
+-- This suggests that among women in your sample, mothers and non-mothers have broadly similar median gross pay (no huge motherhood penalty at the median in this cut).
+
+
+
+# Line plot for mothers 
+
+
+```{r}
+ukhls_clean %>%
+  filter(gender == "female", employment_status == "Paid employment(ft/pt)") %>%
+  mutate(has_child_binary = if_else(has_children_under16 == "Yes", "Has Children", "No Children")) %>%
+  filter(!is.na(gross_pay), !is.na(has_child_binary)) %>%
+  group_by(year, has_child_binary) %>%
+  summarise(mean_pay = mean(gross_pay), .groups = "drop") %>%
+  mutate(year = as.numeric(year)) %>%
+  ggplot(aes(x = year, y = mean_pay, 
+             colour = has_child_binary,
+             linetype = has_child_binary,
+             group = has_child_binary)) +
+  geom_line(size = 1) +
+  geom_point() +
+  scale_colour_manual(values = c("No Children" = "#0288d1", 
+                                 "Has Children" = "#d81b60")) +
+  scale_linetype_manual(values = c("No Children" = "solid", 
+                                   "Has Children" = "dashed")) +
+  labs(title = "Earnings Trajectory for Mothers vs Non-Mothers Over Time",
+       y = "Mean Gross Pay (£)", x = "Year",
+       colour = "Has Children", linetype = "Has Children") +
+  theme_minimal()
+
+
+
+```
+
+
+
+
+
+```{r}
+ukhls_clean %>%
+  filter(employment_status == "Paid employment(ft/pt)") %>%
+  drop_na(gross_pay) %>%
+  group_by(gender) %>%
+  mutate(pay_decile = ntile(gross_pay, 10)) %>%
+  ungroup() %>%
+  group_by(pay_decile, gender) %>%
+  summarise(median_pay = median(gross_pay, na.rm = TRUE)) %>%
+  pivot_wider(names_from = gender, values_from = median_pay) %>%
+  mutate(gap = male - female) %>%
+  ggplot(aes(x = pay_decile, y = gap)) +
+  geom_line(size = 1, colour = "#d81b60") +
+  geom_point(size = 3, colour = "#d81b60") +
+  labs(title = "Pay Gap Across Earnings Distribution",
+       y = "Gender Pay Gap (£)", x = "Earnings Decile (1=lowest, 10=highest)"
+       ) +
+  theme_minimal()
+
+```
+
+# managerial roles
+
+```{r}
+
+
+p_managerial <- ukhls_clean %>%
+  filter(employment_status == "Paid employment(ft/pt)") %>%
+  mutate(
+    is_manager = case_when(
+      managerial_role %in% c("2.0", "3.0", 
+                             "Foreman/supervisor", "foreman/supervisor", 
+                             "Manager", "manager") ~ "Managerial/Supervisory",
+      managerial_role %in% c("1.0", 
+                             "NOT manager or supervisor", 
+                             "not manager or supervisor") ~ "Non-Managerial",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  drop_na(is_manager) %>%
+  count(gender, is_manager, name = "n") %>%
+  group_by(gender) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  ggplot(aes(x = gender, y = prop, fill = is_manager)) +
+  geom_col(position = "dodge", width = 0.7, alpha = 0.8) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 1)),
+            position = position_dodge(0.7), vjust = -0.3, size = 4) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c(
+    "Managerial/Supervisory" = "#0288d1",
+    "Non-Managerial"        = "#d81b60"
+  )) +
+  labs(
+    title = "Managerial Roles by Gender",
+    x = "Gender", y = "Proportion", fill = ""
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+
+print(p_managerial)
+
+
+```
+
+#Education
+
+
+```{r}
+p_edu_gap_levels <- ukhls_clean %>%
+  filter(employment_status == "Paid employment(ft/pt)") %>%
+  mutate(
+    edu_level = case_when(
+      highest_qualification %in% c("Degree", "Other higher degree", "Other higher") ~ "Degree+",
+      highest_qualification %in% c("A-level etc", "A level etc") ~ "A-level",
+      highest_qualification %in% c("GCSE higher etc", "Other GCSE etc") ~ "GCSE",
+      highest_qualification %in% c("Other qual", "Other qualification") ~ "Other qual",
+      highest_qualification == "No qualification" ~ "No qual",
+      TRUE ~ NA_character_
+    ),
+    edu_level = factor(edu_level,
+                       levels = c("No qual", "Other qual", "GCSE", "A-level", "Degree+"))
+  ) %>%
+  drop_na(edu_level) %>%
+  group_by(edu_level, gender) %>%
+  summarise(avg_pay = mean(hours_worked, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = edu_level, y = avg_pay, fill = gender)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  scale_fill_manual(values = c("male" = "#0288d1", "female" = "#d81b60")) +
+  labs(
+    title = "Male vs Female Pay by Education",
+    x = "Education",
+    y = "Average hourly pay (£)",
+    fill = "Gender"
+  ) +
+  theme_minimal()
+
+print(p_edu_gap_levels)
+
+
+```
+
+
+
+## Firm Size and Gender Pay Gap 
+
+
+```{r}
+ukhls_clean %>%
+  filter(employment_status == "Paid employment(ft/pt)") %>%
+  ggplot(aes(x = gender, y = gross_pay, fill = gender)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ company_size) +
+  scale_fill_manual(values = c(
+    "male"   = "#0288d1",
+    "female" = "#d81b60"    
+  )) +
+  labs(
+    title = "Gender Pay Gap Across Firm Sizes",
+    y = "Gross Pay (£)", x = "Gender"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
